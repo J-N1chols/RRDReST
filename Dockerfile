@@ -5,4 +5,4 @@ WORKDIR /opt/stacks/librenms/RRDReST
 RUN pip3 install -r requirements.txt
 COPY . /opt/stacks/librenms/RRDReST
 ENTRYPOINT ["uvicorn", "rrdrest:rrd_rest"]
-CMD ["--host", "0.0.0.0", "--port", "9000"]
+CMD ["--host", "0.0.0.0", "--port", "9000" "--log-level", "debug"]
