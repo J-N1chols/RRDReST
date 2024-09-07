@@ -122,7 +122,6 @@ class RRD_parser:
                 "data_sources": []
             },
             "data": [],
-
         }
 
         collector = defaultdict(dict)
@@ -131,33 +130,34 @@ class RRD_parser:
             r = self.get_rrd_json(ds=d)
             master_result["meta"]["start"] = datetime.datetime.fromtimestamp(
                 int(r["xport"]["meta"]["start"])
-                ).strftime(self.time_format)
+            ).strftime(self.time_format)
             master_result["meta"]["step"] = r["xport"]["meta"]["step"]
             master_result["meta"]["end"] = datetime.datetime.fromtimestamp(
                 int(r["xport"]["meta"]["end"])
-                ).strftime(self.time_format)
+            ).strftime(self.time_format)
             master_result["meta"]["rows"] = 0
             master_result["meta"]["data_sources"].append(
                 r["xport"]["meta"]["legend"]["entry"]
-                )
+            )
 
             for collectible in chain(
                 master_result["data"], r["xport"]["data"]["row"]
-                                    ):
+            ):
                 collector[collectible["t"]].update(collectible.items())
 
-        # combine objs, add row_count
+        # Combine objs, add row_count
         combined_list = list(collector.values())
         master_result["data"] = combined_list
         master_result["meta"]["rows"] = len(combined_list)
         final_result = self.cleanup_payload(master_result)
 
-        # Add the port-id to each data entry
+        # Add the port-id to each data entry in the "data" list
         if self.port_id:
             for entry in final_result["data"]:
                 entry["port-id"] = self.port_id
 
         return final_result
+
 
 
 # if __name__ == "__main__":
