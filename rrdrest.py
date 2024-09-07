@@ -1,15 +1,19 @@
+import logging
 from fastapi import FastAPI, HTTPException
 from backend.RRD_parse import RRD_parser
 from typing import Optional, List, Dict, Any
 import os
 import re
 
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
 rrd_rest = FastAPI(
     title="RRDReST",
     description="Makes RRD files API-able",
     version="0.2",
 )
-
 
 @rrd_rest.get(
     "/",
@@ -20,18 +24,6 @@ async def get_rrd(
     epoch_start_time: Optional[int] = None,
     epoch_end_time: Optional[int] = None
 ) -> Dict[str, Any]:
-    """
-    Fetch data from multiple RRD files based on given port IDs within the rrd_path.
-    
-    Args:
-    rrd_path (str): A string containing the base path and port-ids within curly braces.
-    epoch_start_time (Optional[int]): Start time for the data.
-    epoch_end_time (Optional[int]): End time for the data.
-
-    Returns:
-    Dict[str, Any]: Combined result from all RRD files.
-    """
-    
     # Check if both start and end times are specified
     if (epoch_start_time and not epoch_end_time) or (epoch_end_time and not epoch_start_time):
         raise HTTPException(
@@ -64,11 +56,17 @@ async def get_rrd(
                     end_time=epoch_end_time
                 )
                 r = rr.compile_result()
-                
-                # Insert the port-id into the result
-                for entry in r["data"]:
-                    entry["port-id"] = f"port-id{port_id}"
-                
+
+                # Debug using logging
+                logger.debug(f"Raw result for port-id {port_id}: {r}")
+
+                # Check if the 'data' key exists and modify it
+                if "data" in r:
+                    for entry in r["data"]:
+                        entry["port-id"] = f"port-id{port_id}"
+                else:
+                    logger.debug(f"No 'data' found in the result for port-id {port_id}")
+
                 results[individual_rrd_path] = r
             except Exception as e:
                 results[individual_rrd_path] = {"error": str(e)}
