@@ -6,18 +6,23 @@ from collections import defaultdict
 from itertools import chain
 import datetime
 
-
 class RRD_parser:
 
     def __init__(self, rrd_file=None, start_time=None, end_time=None):
         self.rrd_file = rrd_file
+        self.port_id = self.extract_port_id(rrd_file)  # Extract port-id from filename
         self.ds = None
         self.step = None
         self.time_format = "%Y-%m-%d %H:%M:%S"
         self.check_dependc()
         self.start_time = start_time
         self.end_time = end_time
-        self.port_id = self.extract_port_id()  # Extract port-id during initialization
+
+    def extract_port_id(self, rrd_file):
+        """ Extracts the port-id from the filename, assuming the pattern 'port-idXX' """
+        match = re.search(r'port-id(\d+)', rrd_file)
+        return f"port-id{match.group(1)}" if match else None
+
 
     def check_dependc(self):
         result = subprocess.check_output(
@@ -26,13 +31,6 @@ class RRD_parser:
                                         ).decode('utf-8')
         if "RRDtool 1." not in result:
             raise Exception("RRDtool version not found, check rrdtool installed")
-
-    def extract_port_id(self):
-        """Extract the port-id from the filename"""
-        match = re.search(r'port-id(\d+)', self.rrd_file)
-        if match:
-            return f"port-id{match.group(1)}"
-        return None
 
     def get_data_source(self):
         """ gets datasources from rrd tool """
@@ -154,11 +152,9 @@ class RRD_parser:
         # Add the port-id to each data entry in the "data" list
         if self.port_id:
             for entry in final_result["data"]:
-                entry["port-id"] = self.port_id
+                entry["port-id"] = self.port_id  # Insert the extracted port-id here
 
         return final_result
-
-
 
 # if __name__ == "__main__":
 #     RRD_file = "sensor-voltage-cisco-entity-sensor-532.rrd"
