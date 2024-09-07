@@ -57,12 +57,18 @@ async def get_rrd(
 
         if os.path.isfile(individual_rrd_path):
             try:
+                # Pass port_id to the RRD_parser
                 rr = RRD_parser(
                     rrd_file=individual_rrd_path,
                     start_time=epoch_start_time,
                     end_time=epoch_end_time
                 )
                 r = rr.compile_result()
+                
+                # Insert the port-id into the result
+                for entry in r["data"]:
+                    entry["port-id"] = f"port-id{port_id}"
+                
                 results[individual_rrd_path] = r
             except Exception as e:
                 results[individual_rrd_path] = {"error": str(e)}
