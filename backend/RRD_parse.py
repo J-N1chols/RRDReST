@@ -17,6 +17,7 @@ class RRD_parser:
         self.check_dependc()
         self.start_time = start_time
         self.end_time = end_time
+        self.port_id = self.extract_port_id()  # Extract port-id during initialization
 
     def check_dependc(self):
         result = subprocess.check_output(
@@ -25,6 +26,13 @@ class RRD_parser:
                                         ).decode('utf-8')
         if "RRDtool 1." not in result:
             raise Exception("RRDtool version not found, check rrdtool installed")
+
+    def extract_port_id(self):
+        """Extract the port-id from the filename"""
+        match = re.search(r'port-id(\d+)', self.rrd_file)
+        if match:
+            return f"port-id{match.group(1)}"
+        return None
 
     def get_data_source(self):
         """ gets datasources from rrd tool """
@@ -143,6 +151,12 @@ class RRD_parser:
         master_result["data"] = combined_list
         master_result["meta"]["rows"] = len(combined_list)
         final_result = self.cleanup_payload(master_result)
+
+        # Add the port-id to each data entry
+        if self.port_id:
+            for entry in final_result["data"]:
+                entry["port-id"] = self.port_id
+
         return final_result
 
 
@@ -150,4 +164,4 @@ class RRD_parser:
 #     RRD_file = "sensor-voltage-cisco-entity-sensor-532.rrd"
 #     rr = RRD_parser(rrd_file=RRD_file)
 #     r = rr.compile_result()
-#     print (r)
+#     print(r)
