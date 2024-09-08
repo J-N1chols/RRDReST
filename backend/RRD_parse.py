@@ -10,7 +10,7 @@ class RRD_parser:
 
     def __init__(self, rrd_file=None, start_time=None, end_time=None):
         self.rrd_file = rrd_file
-        self.port_id = self.extract_port_id(rrd_file)  # Extract port-id from filename
+        self.port_id = self.extract_port_id(rrd_file)  # Extract port-id if present
         self.ds = None
         self.step = None
         self.time_format = "%Y-%m-%d %H:%M:%S"
@@ -19,29 +19,31 @@ class RRD_parser:
         self.end_time = end_time
 
     def extract_port_id(self, rrd_file):
-        """ Extracts the port-id from the filename, assuming the pattern 'port-idXX' """
+        """
+        Extracts the port-id from the filename, if present.
+        Assumes the pattern 'port-idXX' or returns None if not applicable.
+        """
         match = re.search(r'port-id(\d+)', rrd_file)
         return f"port-id{match.group(1)}" if match else None
 
-
     def check_dependc(self):
+        """ Check if RRDtool is installed """
         result = subprocess.check_output(
-                                        "rrdtool --version",
-                                        shell=True
-                                        ).decode('utf-8')
+            "rrdtool --version",
+            shell=True
+        ).decode('utf-8')
         if "RRDtool 1." not in result:
             raise Exception("RRDtool version not found, check rrdtool installed")
 
     def get_data_source(self):
-        """ gets datasources from rrd tool """
-
+        """ Gets data sources from RRD file using rrdtool info """
         STEP_VAL = None
         DS_VALS = []
 
         result = subprocess.check_output(
             f"rrdtool info {self.rrd_file}",
             shell=True
-            ).decode('utf-8')
+        ).decode('utf-8')
 
         temp_arr = result.split("\n")
 
@@ -63,52 +65,45 @@ class RRD_parser:
         self.ds = DS_VALS
 
     def get_rrd_json(self, ds):
-        """ gets RRD json from rrd tool """
-        
+        """ Get RRD data in JSON format using rrdtool xport """
         rrd_xport_command = f"rrdtool xport --step {self.step} DEF:data={self.rrd_file}:{ds}:AVERAGE XPORT:data:{ds} --showtime"
         if self.start_time:
-            rrd_xport_command = f"rrdtool xport DEF:data={self.rrd_file}:{ds}:AVERAGE XPORT:data:{ds} --showtime --start {self.start_time} --end {self.end_time}"
+            rrd_xport_command += f" --start {self.start_time} --end {self.end_time}"
+        
         result = subprocess.check_output(
-                                        rrd_xport_command,
-                                        shell=True
-                                        ).decode('utf-8')
+            rrd_xport_command,
+            shell=True
+        ).decode('utf-8')
         json_result = json.dumps(xmltodict.parse(result), indent=4)
-        # replace rrdtool v key with the ds
-        replace_val = "\""+ds.lower()+"\": "
-        temp_result_one = re.sub("\"v\": ",  replace_val, json_result)
+
+        # Replace "v" with the actual data source name
+        replace_val = f"\"{ds.lower()}\": "
+        temp_result_one = re.sub("\"v\": ", replace_val, json_result)
         return json.loads(temp_result_one)
 
     def cleanup_payload(self, payload):
-        """ cleans up / transforms response payload """
-
-        # convert timezones and floats
+        """ Clean up and transform the response payload """
         for count, temp_obj in enumerate(payload["data"]):
             epoch_time = temp_obj["t"]
             utc_time = datetime.datetime.fromtimestamp(
                 int(epoch_time)
-                ).strftime(self.time_format)
+            ).strftime(self.time_format)
             payload["data"][count]["t"] = utc_time
+
             for key in payload["data"][count]:
-                temp_val = ""
-                if "e+" in payload["data"][count][key] or "e-" in payload["data"][count][key]:
-                    temp_val = payload["data"][count][key]
-                    payload["data"][count][key] = float(temp_val)
+                if isinstance(payload["data"][count][key], str) and ("e+" in payload["data"][count][key] or "e-" in payload["data"][count][key]):
+                    payload["data"][count][key] = float(payload["data"][count][key])
+
         pl = json.dumps(payload)
+        pl = re.sub(r'\"(\d+)\"', r'\1', pl)
+        pl = re.sub(r'\"(\d+\.\d+)\"', r'\1', pl)
+        pl = re.sub(r'\"NaN\"', "null", pl)
+        pl = re.sub(r'\"t\"', r'"time"', pl)
 
-        # convert ints, floats
-        pl = re.sub(r'\"(\d+)\"', r'\1', f"{pl}")
-        pl = re.sub(r'\"(\d+\.\d+)\"', r'\1', f"{pl}")
-
-        # convert NaN to null
-        pl = re.sub(r'\"NaN\"', "null", f"{pl}")
-
-        # replace "t" with time
-        pl = re.sub(r'\"t\"', r'"time"', f"{pl}")
-
-        # return response as JSON obj
         return json.loads(pl)
 
     def compile_result(self):
+        """ Compile the final result from the RRD file """
         self.get_data_source()
         DS_VALUES = self.ds
         master_result = {
@@ -143,21 +138,14 @@ class RRD_parser:
             ):
                 collector[collectible["t"]].update(collectible.items())
 
-        # Combine objs, add row_count
         combined_list = list(collector.values())
         master_result["data"] = combined_list
         master_result["meta"]["rows"] = len(combined_list)
         final_result = self.cleanup_payload(master_result)
 
-        # Add the port-id to each data entry in the "data" list
+        # Add port-id to data entries if applicable
         if self.port_id:
             for entry in final_result["data"]:
-                entry["port-id"] = self.port_id  # Insert the extracted port-id here
+                entry["port-id"] = self.port_id
 
         return final_result
-
-# if __name__ == "__main__":
-#     RRD_file = "sensor-voltage-cisco-entity-sensor-532.rrd"
-#     rr = RRD_parser(rrd_file=RRD_file)
-#     r = rr.compile_result()
-#     print(r)
