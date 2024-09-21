@@ -64,10 +64,10 @@ async def get_rrd(
                     )
                     r = rr.compile_result()
 
-                    # Add the port-id to the data
+                    # Add the port_id (instead of port-id) to the data
                     if "data" in r:
                         for entry in r["data"]:
-                            entry["port-id"] = f"port-id{port_id}"
+                            entry["port_id"] = port_id  # Use port_id with the actual port id value
 
                     results[individual_rrd_path] = r
                 except Exception as e:
