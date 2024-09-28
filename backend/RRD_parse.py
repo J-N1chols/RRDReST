@@ -5,6 +5,7 @@ import re
 from collections import defaultdict
 from itertools import chain
 import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class RRD_parser:
 
@@ -19,10 +20,7 @@ class RRD_parser:
         self.end_time = end_time
 
     def extract_port_id(self, rrd_file):
-        """
-        Extracts the port-id from the filename, if present.
-        Assumes the pattern 'port-idXX' or returns None if not applicable.
-        """
+        """ Extracts the port-id from the filename, if present. Assumes the pattern 'port-idXX' or returns None if not applicable. """
         match = re.search(r'port-id(\d+)', rrd_file)
         return f"port-id{match.group(1)}" if match else None
 
@@ -149,3 +147,26 @@ class RRD_parser:
                 entry["port-id"] = self.port_id
 
         return final_result
+
+    @staticmethod
+    def process_port(rrd_file, start_time=None, end_time=None):
+        """ Static method to process an individual port in parallel """
+        parser = RRD_parser(rrd_file, start_time, end_time)
+        return parser.compile_result()
+
+# Use ThreadPoolExecutor for parallel processing
+def process_multiple_ports(rrd_files, start_time=None, end_time=None, max_workers=4):
+    """ Process multiple RRD files concurrently using threads """
+    results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_rrd = {executor.submit(RRD_parser.process_port, rrd_file, start_time, end_time): rrd_file for rrd_file in rrd_files}
+
+        for future in as_completed(future_to_rrd):
+            rrd_file = future_to_rrd[future]
+            try:
+                result = future.result()
+                results[rrd_file] = result
+            except Exception as exc:
+                results[rrd_file] = {"error": str(exc)}
+
+    return results
