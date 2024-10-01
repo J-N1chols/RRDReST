@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from itertools import chain
 import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 class RRD_parser:
 
@@ -154,11 +154,11 @@ class RRD_parser:
         parser = RRD_parser(rrd_file, start_time, end_time)
         return parser.compile_result()
 
-# Use ThreadPoolExecutor for parallel processing
+# Use ProcessPoolExecutor for parallel processing
 def process_multiple_ports(rrd_files, start_time=None, end_time=None, max_workers=4):
-    """ Process multiple RRD files concurrently using threads """
+    """ Process multiple RRD files concurrently using multiple processes """
     results = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         future_to_rrd = {executor.submit(RRD_parser.process_port, rrd_file, start_time, end_time): rrd_file for rrd_file in rrd_files}
 
         for future in as_completed(future_to_rrd):
