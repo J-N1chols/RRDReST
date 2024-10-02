@@ -17,7 +17,7 @@ rrd_rest = FastAPI(
 )
 
 # Define the process pool
-executor = ProcessPoolExecutor(max_workers=8)
+executor = ProcessPoolExecutor(max_workers=4)
 
 def process_rrd_file(individual_rrd_path: str, epoch_start_time: Optional[int], epoch_end_time: Optional[int], port_id: str) -> Dict[str, Any]:
     """Function to process an individual RRD file"""
