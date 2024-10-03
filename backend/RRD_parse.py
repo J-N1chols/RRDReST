@@ -5,6 +5,7 @@ import re
 from collections import defaultdict
 from itertools import chain
 import datetime
+import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 class RRD_parser:
@@ -157,14 +158,12 @@ class RRD_parser:
 
         return final_result
 
-    # Separate function to handle port-id files
     def process_port_file(self):
         self.port_id = self.extract_port_id(self.rrd_file)
         if not self.port_id:
             raise ValueError("Port-id not found in the file name.")
         return self.compile_result()
 
-    # Separate function to handle sensor files (entPhysicalIndex)
     def process_sensor_file(self):
         self.ent_physical_index = self.extract_ent_physical_index(self.rrd_file)
         if not self.ent_physical_index:
@@ -172,11 +171,16 @@ class RRD_parser:
         return self.compile_result()
 
 # Use ProcessPoolExecutor for parallel processing
-def process_multiple_ports(rrd_files, start_time=None, end_time=None, max_workers=8):
+def process_multiple_ports(rrd_files, start_time=None, end_time=None, max_workers=4):
     """ Process multiple RRD files concurrently using multiple processes """
     results = {}
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        future_to_rrd = {executor.submit(RRD_parser(rrd_file, start_time, end_time).process_port_file): rrd_file for rrd_file in rrd_files}
+        future_to_rrd = {}
+        for rrd_file in rrd_files:
+            if os.path.isfile(rrd_file):
+                future_to_rrd[executor.submit(RRD_parser(rrd_file, start_time, end_time).process_port_file)] = rrd_file
+            else:
+                results[rrd_file] = {"error": "File not found."}
 
         for future in as_completed(future_to_rrd):
             rrd_file = future_to_rrd[future]
@@ -192,7 +196,12 @@ def process_multiple_sensors(rrd_files, start_time=None, end_time=None, max_work
     """ Process multiple RRD sensor files concurrently using multiple processes """
     results = {}
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        future_to_rrd = {executor.submit(RRD_parser(rrd_file, start_time, end_time).process_sensor_file): rrd_file for rrd_file in rrd_files}
+        future_to_rrd = {}
+        for rrd_file in rrd_files:
+            if os.path.isfile(rrd_file):
+                future_to_rrd[executor.submit(RRD_parser(rrd_file, start_time, end_time).process_sensor_file)] = rrd_file
+            else:
+                results[rrd_file] = {"error": "File not found."}
 
         for future in as_completed(future_to_rrd):
             rrd_file = future_to_rrd[future]
