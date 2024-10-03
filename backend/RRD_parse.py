@@ -11,7 +11,8 @@ class RRD_parser:
 
     def __init__(self, rrd_file=None, start_time=None, end_time=None):
         self.rrd_file = rrd_file
-        self.port_id = self.extract_port_id(rrd_file)  # Extract port-id if present
+        self.port_id = None  # Holds the port-id
+        self.ent_physical_index = None  # Holds the entPhysicalIndex
         self.ds = None
         self.step = None
         self.time_format = "%Y-%m-%d %H:%M:%S"
@@ -20,9 +21,14 @@ class RRD_parser:
         self.end_time = end_time
 
     def extract_port_id(self, rrd_file):
-        """ Extracts the port-id from the filename, if present. Assumes the pattern 'port-idXX' or returns None if not applicable. """
+        """ Extracts the port-id from the filename. Assumes the pattern 'port-idXX' or returns None if not applicable. """
         match = re.search(r'port-id(\d+)', rrd_file)
         return f"port-id{match.group(1)}" if match else None
+
+    def extract_ent_physical_index(self, rrd_file):
+        """ Extracts the entPhysicalIndex from the sensor filename. """
+        match = re.search(r'sensor-\w+-cisco-entity-sensor-(\d+)', rrd_file)
+        return f"entPhysicalIndex{match.group(1)}" if match else None
 
     def check_dependc(self):
         """ Check if RRDtool is installed """
@@ -141,25 +147,52 @@ class RRD_parser:
         master_result["meta"]["rows"] = len(combined_list)
         final_result = self.cleanup_payload(master_result)
 
-        # Add port-id to data entries if applicable
+        # Add port-id or entPhysicalIndex to data entries if applicable
         if self.port_id:
             for entry in final_result["data"]:
                 entry["port-id"] = self.port_id
+        elif self.ent_physical_index:
+            for entry in final_result["data"]:
+                entry["entPhysicalIndex"] = self.ent_physical_index
 
         return final_result
 
-    @staticmethod
-    def process_port(rrd_file, start_time=None, end_time=None):
-        """ Static method to process an individual port in parallel """
-        parser = RRD_parser(rrd_file, start_time, end_time)
-        return parser.compile_result()
+    # Separate function to handle port-id files
+    def process_port_file(self):
+        self.port_id = self.extract_port_id(self.rrd_file)
+        if not self.port_id:
+            raise ValueError("Port-id not found in the file name.")
+        return self.compile_result()
+
+    # Separate function to handle sensor files (entPhysicalIndex)
+    def process_sensor_file(self):
+        self.ent_physical_index = self.extract_ent_physical_index(self.rrd_file)
+        if not self.ent_physical_index:
+            raise ValueError("entPhysicalIndex not found in the file name.")
+        return self.compile_result()
 
 # Use ProcessPoolExecutor for parallel processing
-def process_multiple_ports(rrd_files, start_time=None, end_time=None, max_workers=4):
+def process_multiple_ports(rrd_files, start_time=None, end_time=None, max_workers=8):
     """ Process multiple RRD files concurrently using multiple processes """
     results = {}
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        future_to_rrd = {executor.submit(RRD_parser.process_port, rrd_file, start_time, end_time): rrd_file for rrd_file in rrd_files}
+        future_to_rrd = {executor.submit(RRD_parser(rrd_file, start_time, end_time).process_port_file): rrd_file for rrd_file in rrd_files}
+
+        for future in as_completed(future_to_rrd):
+            rrd_file = future_to_rrd[future]
+            try:
+                result = future.result()
+                results[rrd_file] = result
+            except Exception as exc:
+                results[rrd_file] = {"error": str(exc)}
+
+    return results
+
+def process_multiple_sensors(rrd_files, start_time=None, end_time=None, max_workers=4):
+    """ Process multiple RRD sensor files concurrently using multiple processes """
+    results = {}
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        future_to_rrd = {executor.submit(RRD_parser(rrd_file, start_time, end_time).process_sensor_file): rrd_file for rrd_file in rrd_files}
 
         for future in as_completed(future_to_rrd):
             rrd_file = future_to_rrd[future]
