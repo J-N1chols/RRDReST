@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 rrd_rest = FastAPI(
     title="RRDReST",
     description="Makes RRD files API-able",
-    version="0.4",  # Updated version
+    version="0.5",  # Updated version
 )
 
 # Define the process pool
-executor = ProcessPoolExecutor(max_workers=4)
+executor = ProcessPoolExecutor(max_workers=8)  # Adjust max_workers for an 8-core system
 
-def process_rrd_file(individual_rrd_path: str, epoch_start_time: Optional[int], epoch_end_time: Optional[int], port_id: str) -> Dict[str, Any]:
-    """Function to process an individual RRD file"""
+def process_rrd_file(individual_rrd_path: str, epoch_start_time: Optional[int], epoch_end_time: Optional[int], port_id: Optional[str] = None, ent_physical_index: Optional[str] = None) -> Dict[str, Any]:
+    """Function to process an individual RRD file and add port_id or entPhysicalIndex."""
     result = {}
     if os.path.isfile(individual_rrd_path):
         try:
@@ -31,10 +31,13 @@ def process_rrd_file(individual_rrd_path: str, epoch_start_time: Optional[int], 
             )
             r = rr.compile_result()
 
-            # Add the port_id (instead of port-id) to the data
+            # Add port_id or entPhysicalIndex to the data
             if "data" in r:
                 for entry in r["data"]:
-                    entry["port_id"] = port_id  # Use port_id with the actual port id value
+                    if port_id:
+                        entry["port_id"] = port_id  # Add port_id if available
+                    if ent_physical_index:
+                        entry["entPhysicalIndex"] = ent_physical_index  # Add entPhysicalIndex if available
 
             result[individual_rrd_path] = r
         except Exception as e:
@@ -57,7 +60,7 @@ async def get_rrd(
     Fetch data from one or multiple RRD files based on the given RRD path.
     
     Args:
-    rrd_path (str): A string containing the base path. It could either be a single RRD file or a port-id pattern.
+    rrd_path (str): A string containing the base path. It could either be a single RRD file or a pattern.
     epoch_start_time (Optional[int]): Start time for the data.
     epoch_end_time (Optional[int]): End time for the data.
 
@@ -75,25 +78,30 @@ async def get_rrd(
     results = {}
 
     # Check if the path is for multiple ports (e.g., includes port-id{port1,port2})
-    match_multi = re.match(r"^(.*)/port-id\{(.*)\}\.rrd$", rrd_path)
-    if match_multi:
-        base_path = match_multi.group(1)  # Extract base path
-        port_ids_str = match_multi.group(2)  # Extract port ids string
-        port_ids = port_ids_str.split(",")  # Split the string into individual port ids
+    match_multi_port = re.match(r"^(.*)/port-id\{(.*)\}\.rrd$", rrd_path)
+    match_sensor = re.match(r"^(.*)/sensor-\w+-cisco-entity-sensor-(\d+)\.rrd$", rrd_path)  # For sensor files
 
-        # List to hold the futures
-        futures = []
+    # List to hold the futures
+    futures = []
+
+    if match_multi_port:
+        base_path = match_multi_port.group(1)  # Extract base path
+        port_ids_str = match_multi_port.group(2)  # Extract port ids string
+        port_ids = port_ids_str.split(",")  # Split the string into individual port ids
 
         # Process each port-id
         for port_id in port_ids:
             individual_rrd_path = f"{base_path}/port-id{port_id}.rrd"  # Construct full path for each port
             # Submit the task to the process pool
-            futures.append(executor.submit(process_rrd_file, individual_rrd_path, epoch_start_time, epoch_end_time, port_id))
+            futures.append(executor.submit(process_rrd_file, individual_rrd_path, epoch_start_time, epoch_end_time, port_id=port_id))
 
-        # Wait for all processes to complete and gather results
-        for future in as_completed(futures):
-            result = future.result()
-            results.update(result)
+    elif match_sensor:
+        base_path = match_sensor.group(1)  # Extract base path
+        ent_physical_index = match_sensor.group(2)  # Extract the entPhysicalIndex from the filename
+        individual_rrd_path = rrd_path  # Use the full sensor RRD file path as passed in
+        
+        # Submit the task to the process pool
+        futures.append(executor.submit(process_rrd_file, individual_rrd_path, epoch_start_time, epoch_end_time, ent_physical_index=ent_physical_index))
 
     else:
         # If it's a single file or other non-port RRD file
@@ -113,5 +121,10 @@ async def get_rrd(
                 status_code=404,
                 detail=f"RRD file {rrd_path} not found."
             )
+
+    # Wait for all processes to complete and gather results
+    for future in as_completed(futures):
+        result = future.result()
+        results.update(result)
 
     return results
